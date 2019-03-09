@@ -1,0 +1,20 @@
+- name: Installing the Rabbitmq packages
+  yum:
+    name: rabbitmq-server
+    state: installed
+
+- name: Starting the Rabbitmq Service
+  service:
+    name: rabbitmq-server
+    state: started
+    enabled: true
+
+- name: Creating the rabbitmq user for the Openstack setup
+  rabbitmq_user:
+    user: "{{ rabbitmq_user }}"
+    password: "{{ rabbitmq_password }}"
+    vhost: /
+    configure_priv: .*
+    read_priv: .*
+    write_priv: .*
+    state: present

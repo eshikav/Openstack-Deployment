@@ -1,0 +1,114 @@
+- name: Installing the Keystone packages
+  yum:
+    name: "{{ item }}"
+    state: installed
+  with_items:
+    - openstack-keystone 
+    - httpd 
+    - mod_wsgi
+
+- name: Creating the Keystone database
+  mysql_db:
+    name: keystone
+    state: present
+    login_user: "{{ mysql_user }}"
+    login_password: "{{ mysql_password }}"
+
+- name: Creating the nova users for the databases
+  mysql_user:
+    login_user: "{{ mysql_user }}"
+    login_password: "{{ mysql_password }}"
+    name: keystone
+    password: "{{ keystone_db_password }}"
+    priv: 'keystone.*:ALL,GRANT'
+    host: "{{ item }}"
+  with_items:
+    - "localhost"
+    - "%"
+
+- name: Configuring the keystone service
+  ini_file: 
+     path: /etc/keystone/keystone.conf
+     section: "{{ item.section }}"
+     option: "{{ item.option }}"
+     value: "{{ item.value }}"
+  with_items:
+    - { 'section': database,'option': connection,'value': "mysql+pymysql://keystone:{{ keystone_db_password }}@controller/keystone" }
+    - { 'section': token,'option': token,'value': fernet }
+
+- name: Populating the database for the keystone
+  shell: /bin/sh -c "keystone-manage db_sync" keystone && touch {{ ansible_env['HOME'] }}/.keystone_db
+  args:
+    creates: "{{ ansible_env['HOME'] }}/.keystone_db"
+
+- name: Configuring the keystone service
+  file: 
+    src: /usr/share/keystone/wsgi-keystone.conf
+    dest: /etc/httpd/conf.d/wsgi-keystone.conf
+    state: link
+
+- name: Configuring the keystone service
+  shell: "{{ item }}"
+  with_items:
+    - "keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone"
+    - "keystone-manage credential_setup --keystone-user keystone --keystone-group keystone"
+    - "keystone-manage bootstrap --bootstrap-password {{ admin_password }} --bootstrap-admin-url http://controller:35357/v3/ --bootstrap-internal-url http://controller:35357/v3/ --bootstrap-public-url http://controller:5000/v3/ --bootstrap-region-id RegionOne"
+
+- name: Configuring the keystone service
+  template: 
+    src: httpd.conf
+    dest: /etc/httpd/conf/httpd.conf
+
+- name: Starting the Web server
+  service:
+    name: httpd
+    state: started
+    enabled: true
+
+- name: Creating the credentials files
+  file:
+    path: "{{ ansible_env['HOME'] }}/.config/openstack/"
+    state: directory
+    recurse: true
+
+- name: Creating the credentials files
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+  with_items:
+    - { 'src': 'admin.rc','dest': "{{ ansible_env['HOME'] }}" }
+    - { 'src': 'demo.rc','dest': "{{ ansible_env['HOME'] }}" }
+    - { 'src': 'clouds.yaml','dest': "{{ ansible_env['HOME'] }}/.config/openstack/" }
+
+- name: Creating the required projects
+  os_project:
+    cloud: mycloud
+    state: present
+    name: "{{ item.name }}"
+    description: "{{ item.description }}"
+    domain_id: default
+  with_items:
+    - { name: demo,description: "Demo Project" }
+    - { name: service,description: "Service Project" }  
+
+- name: Creating user role
+  os_keystone_role:
+    cloud: mycloud
+    state: present
+    name: user
+
+- name: Creating a demo user
+  os_user:
+    cloud: mycloud
+    state: present
+    name: demo
+    password: "{{ demo_password }}"
+    domain: default
+
+- name: Attaching user role to demo user
+  os_user_role:
+    cloud: mycloud
+    user: demo
+    role: user
+    project: demo
+

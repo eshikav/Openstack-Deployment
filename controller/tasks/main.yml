@@ -1,0 +1,7 @@
+- include: ntp.yml
+- include: rabbitmq.yml
+- include: memcached.yml
+- include: database.yml
+- include: keystone.yml
+- include: glance.yml
+- include: nova.yml

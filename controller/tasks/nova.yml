@@ -1,0 +1,125 @@
+- name: Installing the Nova packages
+  yum:
+    name: "{{ item }}"
+    state: installed
+  with_items:
+    - openstack-nova-api 
+    - openstack-nova-conductor
+    - openstack-nova-console 
+    - openstack-nova-novncproxy
+    - openstack-nova-scheduler
+
+- name: Creating the database for Nova services
+  mysql_db:
+    name: "{{ item }}"
+    state: present
+    login_user: "{{ mysql_user }}"
+    login_password: "{{ mysql_password }}"
+  with_items:
+    - nova_api
+    - nova
+
+- name: Creating the nova users for the databases
+  mysql_user:
+    login_user: "{{ mysql_user }}"
+    login_password: "{{ mysql_password }}"
+    name: nova
+    password: "{{ nova_db_password }}"
+    priv: 'nova_api.*:ALL,GRANT/nova.*:ALL,GRANT'
+    host: "{{ item }}"
+  with_items:
+    - "localhost"
+    - "%"
+
+- name: Creating a nova user
+  os_user:
+    cloud: mycloud
+    state: present
+    name: nova
+    password: "{{ nova_password }}"
+    domain: default
+
+- name: Creating the nova service
+  os_keystone_service:
+    cloud: mycloud
+    state: present
+    name: nova
+    service_type: compute
+
+- os_user_role:
+    cloud: mycloud
+    user: nova
+    role: admin
+    project: service
+
+- os_keystone_service:
+    cloud: mycloud
+    state: present
+    name: nova
+    service_type: compute
+    description: OpenStack Compute Service
+
+- name: Creating the endpoints for the  glance service
+  os_keystone_endpoint:
+    cloud: mycloud
+    service: glance
+    endpoint_interface: "{{ item.type }}"
+    url: "{{ item.endpoint }}"
+    region: RegionOne
+    state: present
+  with_items:
+    - { 'type': 'admin','endpoint': 'http://controller:9292' }
+    - { 'type': 'public','endpoint': 'http://controller:9292' }
+    - { 'type': 'internal','endpoint': 'http://controller:9292' }
+
+
+- name: Configuring Nova service
+  ini_file:
+     path: /etc/nova/nova.conf
+     section: "{{ item.section }}"
+     option: "{{ item.option }}"
+     value: "{{ item.value }}"
+  with_items:
+    - { 'section': "DEFAULT",'option': "enabled_apis",'value': "osapi_compute,metadata" }
+    - { 'section': "api_database",'option': connection,'value': "mysql+pymysql://nova:{{ nova_db_password }}@controller/nova_api" }
+    - { 'section': "database",'option': connection,'value': "mysql+pymysql://nova:{{ nova_db_password }}@controller/nova" }
+    - { 'section': "DEFAULT",'option': "transport_url",'value': "rabbit://{{ rabbitmq_user }}:{{ rabbitmq_password }}@controller" }
+    - { 'section': "DEFAULT",'option': "auth_strategy",'value': "keystone" }
+    - { 'section': "keystone_authtoken",'option': "auth_uri",'value': "http://controller:5000" }
+    - { 'section': "keystone_authtoken",'option': "auth_url",'value': "http://controller:35357" }
+    - { 'section': "keystone_authtoken",'option': "memcached_servers",'value': "controller:11211" }
+    - { 'section': "keystone_authtoken",'option': "auth_type",'value': "password" }
+    - { 'section': "keystone_authtoken",'option': "project_domain_name",'value': "Default" }
+    - { 'section': "keystone_authtoken",'option': "user_domain_name",'value':  "Default" }
+    - { 'section': "keystone_authtoken",'option': "project_name",'value': "service" }
+    - { 'section': "keystone_authtoken",'option': "username",'value': "nova" }
+    - { 'section': "keystone_authtoken",'option': "password",'value': "{{ nova_password }}" }
+    - { 'section': "DEFAULT",'option': my_ip,'value': "{{ ansible_eno33559296['ipv4']['address'] }}" }
+    - { 'section': "DEFAULT",'option': "use_neutron",'value': 'True' }
+    - { 'section': "DEFAULT",'option': "firewall_driver",'value': 'nova.virt.firewall.NoopFirewallDriver' }
+    - { 'section': "vnc",'option': "vncserver_listen",'value': '$my_ip' }
+    - { 'section': "vnc",'option': "vncserver_proxyclient_address",'value': '$my_ip' }
+    - { 'section': "glance",'option': "api_servers",'value': 'http://controller:9292' }
+    - { 'section': "oslo_concurrency",'option': "lock_path",'value': '/var/lib/nova/tmp' }
+
+- name: Populating the Nova databases
+  shell: /bin/sh -c "nova-manage api_db sync" nova && touch "{{ ansible_env['HOME'] }}/.nova_api_db"
+  args:
+    creates: "{{ ansible_env['HOME'] }}/.nova_api_db"
+
+- name: Populating the Nova databases
+  shell: /bin/sh -c "nova-manage db sync" nova && touch "{{ ansible_env['HOME'] }}/.nova_db"
+  args:
+    creates: "{{ ansible_env['HOME'] }}/.nova_db"
+
+- name: Starting the required services for Nova
+  service: 
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  with_items:
+    - openstack-nova-api
+    - openstack-nova-consoleauth
+    - openstack-nova-scheduler
+    - openstack-nova-conductor
+    - openstack-nova-novncproxy

@@ -1,0 +1,17 @@
+- name: Downloading the necessary packages for the Openstack installation
+  get_url:
+    url: "https://repos.fedorapeople.org/repos/openstack/openstack-newton/rdo-release-newton-5.noarch.rpm"
+    dest: /tmp/
+
+- name: Setting up EPEL Repository for all the nodes
+  yum: 
+    name: epel-release
+    state: installed
+
+- name: Setting up Openstack repositories
+  yum:
+    name: "{{ item }}"
+    state: installed
+  with_items:
+    - "centos-release-openstack-newton"
+    - "/tmp/rdo-release-newton-5.noarch.rpm"

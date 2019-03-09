@@ -1,0 +1,39 @@
+- name: Installing the pip instaaller package
+  yum:
+    name: "{{ item }}"
+    state: installed
+  with_items:
+    - python-pip
+    - gcc
+    - python-devel
+    - python-openstackclient
+    - openstack-selinux
+
+- name: Installing the shade package
+  pip:
+    name: shade
+    state: present
+
+- name: Stopping the firewall
+  service:
+    name: firewalld
+    state: stopped
+    enabled: false
+
+- name: Adding the entry in hosts file
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ ansible_eno16780032['ipv4']['address'] }}  controller"
+
+- name: Disabling the SELINUX
+  selinux:
+    state: disabled
+
+- name: Reboot server
+  shell: sleep 1 && shutdown -r now  "Ansible trigged shutdown"
+  poll: 0
+  async: 1
+
+- name: Reboot server
+  local_action: wait_for host={{ inventory_hostname }} port=22 state=started
+

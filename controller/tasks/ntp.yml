@@ -1,0 +1,15 @@
+- name: Installing the Ntp package on the conroller
+  yum:
+    name: chrony
+    state: installed
+
+- name: Configuring the chrony on the Controller node
+  template:
+    src: chrony.conf
+    dest: /etc/chrony.conf
+
+- name: starting the Chrony service
+  service: 
+    name: chronyd
+    state: started
+    enabled: true
